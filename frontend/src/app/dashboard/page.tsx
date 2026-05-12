@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 
 export const metadata: Metadata = { title: 'Overview' };
 
@@ -66,15 +67,14 @@ type DashboardStats = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function fetchStats(): Promise<DashboardStats | null> {
-  const apiKey = process.env['SALON_API_KEY'];
   const apiUrl = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001';
-
-  if (!apiKey) return null;
+  const token  = (await cookies()).get('auth_token')?.value;
+  if (!token) return null;
 
   try {
     const res = await fetch(`${apiUrl}/v1/admin/dashboard/stats`, {
-      headers: { 'x-api-key': apiKey },
-      next: { revalidate: 60 }, // refresh every 60s
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
     });
     if (!res.ok) return null;
     const json = await res.json();
@@ -166,7 +166,7 @@ export default async function DashboardOverviewPage() {
           </h2>
 
           {!stats ? (
-            <EmptyState icon="📅" message="No API key configured — add SALON_API_KEY to .env.local" />
+            <EmptyState icon="📅" message="Could not load today's schedule. Make sure the backend is running." />
           ) : stats.todaySchedule.length === 0 ? (
             <EmptyState icon="🌿" message="No appointments scheduled for today" />
           ) : (

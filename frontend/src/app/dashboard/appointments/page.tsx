@@ -14,9 +14,7 @@ async function fetchAppointments(token: string) {
     });
     const json = await res.json();
     return json.success ? json.data.appointments : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 async function fetchStaff(token: string) {
@@ -28,9 +26,19 @@ async function fetchStaff(token: string) {
     });
     const json = await res.json();
     return json.success ? json.data.staff : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
+}
+
+async function fetchRequests(token: string) {
+  if (!token) return [];
+  try {
+    const res = await fetch(`${API_URL}/v1/admin/requests`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: 'no-store',
+    });
+    const json = await res.json();
+    return json.success ? json.data.requests : [];
+  } catch { return []; }
 }
 
 export default async function AppointmentsPage() {
@@ -38,17 +46,20 @@ export default async function AppointmentsPage() {
   const session = await getSession();
   const role    = session?.role ?? 'STAFF';
 
-  const [appointments, staffList] = await Promise.all([
+  const [appointments, staffList, requests] = await Promise.all([
     fetchAppointments(token),
-    role !== 'STAFF' ? fetchStaff(token) : Promise.resolve([]),
+    fetchStaff(token),
+    fetchRequests(token),
   ]);
 
   return (
-    <div className="p-8 max-w-6xl">
+    <div className="p-6 max-w-7xl">
       <AppointmentsClient
         initialAppointments={appointments}
+        initialRequests={requests}
         staffList={staffList}
         role={role}
+        userId={session?.userId ?? ''}
       />
     </div>
   );
