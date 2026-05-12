@@ -36,7 +36,7 @@ export async function getSession(): Promise<SessionUser | null> {
 
 // The API key is still needed for server-side fetches that use the tools endpoint.
 export const SALON_API_KEY = process.env['SALON_API_KEY'] ?? '';
-export const API_URL       = process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001';
+export const API_URL       = process.env['API_URL'] ?? process.env['NEXT_PUBLIC_API_URL'] ?? 'http://localhost:3001';
 
 // Build auth headers for server-side fetch calls using JWT from cookie.
 export function serverAuthHeaders(token: string) {

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const SLUG    = process.env.NEXT_PUBLIC_SALON_SLUG ?? 'luxe-nails';
 
 async function fetchSalonInfo() {
