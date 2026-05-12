@@ -2,8 +2,8 @@ import { redirect } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import { getSession } from '@/lib/session';
 
-export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const session = getSession();
+export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const session = await getSession();
 
   // Belt-and-suspenders: middleware already redirects, but just in case
   if (!session) redirect('/login');

@@ -20,8 +20,8 @@ async function fetchCustomers(token: string) {
 }
 
 export default async function CustomersPage() {
-  const token    = cookies().get('auth_token')?.value ?? '';
-  const session  = getSession();
+  const token    = (await cookies()).get('auth_token')?.value ?? '';
+  const session  = await getSession();
   const role     = session?.role ?? 'STAFF';
   const customers = await fetchCustomers(token);
 

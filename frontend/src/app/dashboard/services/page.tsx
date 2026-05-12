@@ -21,8 +21,8 @@ async function fetchInitialServices(token: string): Promise<ServiceDto[]> {
 }
 
 export default async function ServicesPage() {
-  const token    = cookies().get('auth_token')?.value ?? '';
-  const session  = getSession();
+  const token    = (await cookies()).get('auth_token')?.value ?? '';
+  const session  = await getSession();
   const services = await fetchInitialServices(token);
   const role     = session?.role ?? 'STAFF';
 

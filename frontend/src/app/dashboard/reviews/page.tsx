@@ -20,8 +20,8 @@ async function fetchReviews(token: string) {
 }
 
 export default async function ReviewsPage() {
-  const token   = cookies().get('auth_token')?.value ?? '';
-  const session = getSession();
+  const token   = (await cookies()).get('auth_token')?.value ?? '';
+  const session = await getSession();
   const reviews = await fetchReviews(token);
   const role    = session?.role ?? 'STAFF';
 

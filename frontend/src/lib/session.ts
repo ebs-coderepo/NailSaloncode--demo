@@ -12,8 +12,8 @@ export type SessionUser = {
   staffId?: string;
 };
 
-export function getSession(): SessionUser | null {
-  const token = cookies().get('auth_token')?.value;
+export async function getSession(): Promise<SessionUser | null> {
+  const token = (await cookies()).get('auth_token')?.value;
   if (!token) return null;
 
   try {

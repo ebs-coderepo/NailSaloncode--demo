@@ -48,8 +48,8 @@ async function fetchServices(token: string) {
 }
 
 export default async function StaffPage() {
-  const token   = cookies().get('auth_token')?.value ?? '';
-  const session = getSession();
+  const token   = (await cookies()).get('auth_token')?.value ?? '';
+  const session = await getSession();
   const role    = session?.role ?? 'STAFF';
 
   const [staffList, myProfile, services] = await Promise.all([

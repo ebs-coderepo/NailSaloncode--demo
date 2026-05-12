@@ -30,6 +30,8 @@ type Appointment = {
   createdAt: string;
 };
 
+type Slot = { time: string; staffId: string; staffName: string };
+
 type StaffMini = { id: string; name: string };
 
 type Props = {
@@ -58,10 +60,16 @@ export default function AppointmentsClient({ initialAppointments, staffList, rol
   const [appointments, setAppointments] = useState<Appointment[]>(initialAppointments);
   const [filterStatus, setFilterStatus] = useState<AppointmentStatus | ''>('');
   const [filterStaff, setFilterStaff] = useState('');
+
+  // Cancel state
   const [cancelTarget, setCancelTarget] = useState<Appointment | null>(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
+
+  // Detail state
   const [detailTarget, setDetailTarget] = useState<Appointment | null>(null);
+
+  // Payment state
   const [payTarget, setPayTarget] = useState<Appointment | null>(null);
   const [payForm, setPayForm] = useState({ amount: '', method: 'CASH', notes: '' });
   const [paying, setPaying] = useState(false);
@@ -69,14 +77,89 @@ export default function AppointmentsClient({ initialAppointments, staffList, rol
   const [paidIds, setPaidIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Reschedule state
+  const [rescheduleTarget, setRescheduleTarget] = useState<Appointment | null>(null);
+  const [rescheduleDate, setRescheduleDate] = useState('');
+  const [rescheduleStaffId, setRescheduleStaffId] = useState('');
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState('');
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState('');
+
   const canMutate = role === 'OWNER' || role === 'MANAGER';
 
-  function handleCopyPaymentLink(appt: Appointment) {
-    const url = `${window.location.origin}/pay/${appt.cancelToken}`;
-    navigator.clipboard.writeText(url).then(() => {
-      setCopiedId(appt.id);
-      setTimeout(() => setCopiedId(null), 2000);
-    });
+  function openReschedule(appt: Appointment) {
+    setRescheduleTarget(appt);
+    setRescheduleStaffId(appt.staff.id);
+    setRescheduleDate('');
+    setSlots([]);
+    setSelectedSlot(null);
+    setSlotsError('');
+    setRescheduleError('');
+  }
+
+  function closeReschedule() {
+    setRescheduleTarget(null);
+    setSlots([]);
+    setSelectedSlot(null);
+    setSlotsError('');
+    setRescheduleError('');
+  }
+
+  async function handleLoadSlots() {
+    if (!rescheduleTarget || !rescheduleDate) return;
+    setSlotsLoading(true);
+    setSlotsError('');
+    setSlots([]);
+    setSelectedSlot(null);
+    const params = new URLSearchParams({ date: rescheduleDate, staffId: rescheduleStaffId });
+    const res = await apiFetch<{ slots: Slot[] }>(
+      `/api/v1/admin/appointments/${rescheduleTarget.id}/slots?${params}`,
+    );
+    setSlotsLoading(false);
+    if (res.success && res.data.slots.length > 0) {
+      setSlots(res.data.slots);
+    } else if (res.success) {
+      setSlotsError('No available slots on this date. Try another day.');
+    } else {
+      setSlotsError(res.message || 'Failed to load slots.');
+    }
+  }
+
+  async function handleReschedule() {
+    if (!rescheduleTarget || !selectedSlot) return;
+    setRescheduling(true);
+    setRescheduleError('');
+    const res = await apiFetch<{ id: string; startTime: string; staff: { id: string; name: string } }>(
+      `/api/v1/admin/appointments/${rescheduleTarget.id}/reschedule`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ date: rescheduleDate, time: selectedSlot.time, staffId: selectedSlot.staffId }),
+      },
+    );
+    setRescheduling(false);
+    if (res.success) {
+      // The old appointment is now CANCELLED; remove it and add the new one at the top
+      setAppointments((prev) => {
+        const updated = prev.map((a) =>
+          a.id === rescheduleTarget.id ? { ...a, status: 'CANCELLED' as AppointmentStatus } : a,
+        );
+        const newEntry: Appointment = {
+          ...rescheduleTarget,
+          id:        res.data.id,
+          startTime: res.data.startTime,
+          status:    'CONFIRMED',
+          staff:     res.data.staff,
+          cancelToken: (res.data as any).cancelToken ?? rescheduleTarget.cancelToken,
+        };
+        return [newEntry, ...updated];
+      });
+      closeReschedule();
+    } else {
+      setRescheduleError(res.message || 'Failed to reschedule. The slot may have just been taken.');
+    }
   }
 
   const filtered = useMemo(() => {
@@ -129,12 +212,29 @@ export default function AppointmentsClient({ initialAppointments, staffList, rol
     }
   }
 
+  function handleCopyPaymentLink(appt: Appointment) {
+    const url = `${window.location.origin}/pay/${appt.cancelToken}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(appt.id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }
+
   function formatTime(iso: string) {
     return new Date(iso).toLocaleString('en-US', {
       month: 'short', day: 'numeric', year: 'numeric',
       hour: 'numeric', minute: '2-digit',
     });
   }
+
+  function formatSlotTime(time: string) {
+    const [h, m] = time.split(':').map(Number);
+    const d = new Date(); d.setHours(h!, m!, 0);
+    return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  }
+
+  // Today's date as YYYY-MM-DD (min value for date picker)
+  const today = new Date().toISOString().split('T')[0]!;
 
   return (
     <div>
@@ -235,6 +335,12 @@ export default function AppointmentsClient({ initialAppointments, staffList, rol
                         >
                           Record Payment
                         </button>
+                        <button
+                          onClick={() => openReschedule(appt)}
+                          className="text-xs text-blue-600 hover:text-blue-800 font-medium mr-3"
+                        >
+                          Reschedule
+                        </button>
                       </>
                     )}
                     {canMutate && appt.status !== 'CANCELLED' && appt.status !== 'COMPLETED' && (
@@ -250,6 +356,122 @@ export default function AppointmentsClient({ initialAppointments, staffList, rol
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Reschedule modal */}
+      {rescheduleTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Reschedule Appointment</h2>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  {rescheduleTarget.customer.name} · {rescheduleTarget.service.name}
+                </p>
+              </div>
+              <button onClick={closeReschedule} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+            </div>
+
+            <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-600 mb-4">
+              Currently: <span className="font-medium text-gray-900">{formatTime(rescheduleTarget.startTime)}</span>
+              {' '}with <span className="font-medium text-gray-900">{rescheduleTarget.staff.name}</span>
+            </div>
+
+            <div className="space-y-4">
+              {/* Date picker */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">New Date</label>
+                <input
+                  type="date"
+                  min={today}
+                  className="input w-full"
+                  value={rescheduleDate}
+                  onChange={(e) => { setRescheduleDate(e.target.value); setSlots([]); setSelectedSlot(null); setSlotsError(''); }}
+                />
+              </div>
+
+              {/* Staff selector */}
+              {staffList.length > 1 && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Staff Member</label>
+                  <select
+                    className="input w-full"
+                    value={rescheduleStaffId}
+                    onChange={(e) => { setRescheduleStaffId(e.target.value); setSlots([]); setSelectedSlot(null); setSlotsError(''); }}
+                  >
+                    {staffList.map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Check availability button */}
+              <button
+                onClick={handleLoadSlots}
+                disabled={!rescheduleDate || slotsLoading}
+                className="w-full btn-secondary disabled:opacity-50"
+              >
+                {slotsLoading ? 'Checking availability…' : 'Check Available Times'}
+              </button>
+
+              {/* Slots grid */}
+              {slotsError && (
+                <p className="text-sm text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">{slotsError}</p>
+              )}
+              {slots.length > 0 && (
+                <div>
+                  <p className="text-sm font-medium text-gray-700 mb-2">Select a time</p>
+                  <div className="grid grid-cols-4 gap-2">
+                    {slots.map((slot) => (
+                      <button
+                        key={`${slot.staffId}-${slot.time}`}
+                        onClick={() => setSelectedSlot(slot)}
+                        className={`text-sm py-2 rounded-lg border font-medium transition-colors ${
+                          selectedSlot?.time === slot.time && selectedSlot?.staffId === slot.staffId
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'border-gray-200 text-gray-700 hover:border-blue-400 hover:text-blue-700'
+                        }`}
+                      >
+                        {formatSlotTime(slot.time)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Confirm summary */}
+              {selectedSlot && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-800">
+                  New time: <strong>
+                    {new Date(rescheduleDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
+                    {' at '}{formatSlotTime(selectedSlot.time)}
+                  </strong>
+                  {staffList.length > 1 && (
+                    <> with <strong>{staffList.find((s) => s.id === rescheduleStaffId)?.name}</strong></>
+                  )}
+                </div>
+              )}
+
+              {rescheduleError && (
+                <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{rescheduleError}</p>
+              )}
+            </div>
+
+            <div className="flex gap-3 mt-5">
+              <button onClick={closeReschedule} className="flex-1 btn-secondary" disabled={rescheduling}>
+                Cancel
+              </button>
+              <button
+                onClick={handleReschedule}
+                disabled={!selectedSlot || rescheduling}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                {rescheduling ? 'Rescheduling…' : 'Confirm Reschedule'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

@@ -23,8 +23,8 @@ async function fetchCalendarData(token: string, year: number, month: number, sta
 }
 
 export default async function CalendarPage() {
-  const token   = cookies().get('auth_token')?.value ?? '';
-  const session = getSession();
+  const token   = (await cookies()).get('auth_token')?.value ?? '';
+  const session = await getSession();
 
   const now   = new Date();
   const year  = now.getFullYear();

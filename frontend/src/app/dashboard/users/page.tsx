@@ -21,10 +21,10 @@ async function fetchUsers(token: string) {
 }
 
 export default async function UsersPage() {
-  const session = getSession();
+  const session = await getSession();
   if (!session || session.role !== 'OWNER') redirect('/dashboard');
 
-  const token = cookies().get('auth_token')?.value ?? '';
+  const token = (await cookies()).get('auth_token')?.value ?? '';
   const users = await fetchUsers(token);
 
   return (

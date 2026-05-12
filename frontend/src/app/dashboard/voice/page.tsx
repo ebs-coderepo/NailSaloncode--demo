@@ -20,8 +20,8 @@ async function fetchVoiceConfig(token: string) {
 }
 
 export default async function VoicePage() {
-  const token  = cookies().get('auth_token')?.value ?? '';
-  const session = getSession();
+  const token  = (await cookies()).get('auth_token')?.value ?? '';
+  const session = await getSession();
   const config  = await fetchVoiceConfig(token);
   const role    = session?.role ?? 'STAFF';
 

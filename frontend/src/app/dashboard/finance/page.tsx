@@ -21,10 +21,10 @@ async function fetchFinanceSummary(token: string) {
 }
 
 export default async function FinancePage() {
-  const session = getSession();
+  const session = await getSession();
   if (!session || session.role === 'STAFF') redirect('/dashboard');
 
-  const token = cookies().get('auth_token')?.value ?? '';
+  const token = (await cookies()).get('auth_token')?.value ?? '';
   const data  = await fetchFinanceSummary(token);
 
   return (

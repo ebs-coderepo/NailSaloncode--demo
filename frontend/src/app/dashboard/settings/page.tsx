@@ -20,8 +20,8 @@ async function fetchSettings(token: string) {
 }
 
 export default async function SettingsPage() {
-  const token    = cookies().get('auth_token')?.value ?? '';
-  const session  = getSession();
+  const token    = (await cookies()).get('auth_token')?.value ?? '';
+  const session  = await getSession();
   const settings = await fetchSettings(token);
   const role     = session?.role ?? 'STAFF';
 

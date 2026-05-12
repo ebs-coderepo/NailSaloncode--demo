@@ -8,6 +8,11 @@ import {
   AppointmentRow,
   AppointmentFilter,
 } from './appointments.repository';
+import {
+  findTenantById,
+  rescheduleAppointment,
+} from '../../public/public.repository';
+import { getAvailability } from '../../public/public.service';
 import { AppError } from '../../../shared/utils/AppError';
 import { ErrorCode } from '../../../shared/types/api.types';
 
@@ -97,4 +102,81 @@ export async function changeStatus(tenantId: string, id: string, status: Appoint
   const row = await updateAppointmentStatus(tenantId, id, status);
   if (!row) throw new AppError('Appointment not found', 404, ErrorCode.NOT_FOUND);
   return toDto(row);
+}
+
+export const AdminRescheduleSchema = z.object({
+  date:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'date must be YYYY-MM-DD'),
+  time:    z.string().regex(/^\d{2}:\d{2}$/, 'time must be HH:MM'),
+  staffId: z.string().min(1),
+});
+
+export async function getAvailableSlots(tenantId: string, id: string, date: string, staffId?: string) {
+  const appt = await findAppointmentById(tenantId, id);
+  if (!appt) throw new AppError('Appointment not found', 404, ErrorCode.NOT_FOUND);
+
+  const tenant = await findTenantById(tenantId);
+  if (!tenant) throw new AppError('Tenant not found', 404, ErrorCode.TENANT_NOT_FOUND);
+
+  const slots = await getAvailability(tenant.slug, {
+    serviceId: appt.service.id,
+    date,
+    staffId: staffId ?? appt.staff.id,
+  });
+  return { slots, serviceId: appt.service.id, currentStaffId: appt.staff.id };
+}
+
+export async function rescheduleAppt(tenantId: string, id: string, input: z.infer<typeof AdminRescheduleSchema>) {
+  const appt = await findAppointmentById(tenantId, id);
+  if (!appt) throw new AppError('Appointment not found', 404, ErrorCode.NOT_FOUND);
+  if (appt.status === 'CANCELLED')  throw new AppError('Cannot reschedule a cancelled appointment', 400, ErrorCode.VALIDATION_ERROR);
+  if (appt.status === 'COMPLETED')  throw new AppError('Cannot reschedule a completed appointment', 400, ErrorCode.VALIDATION_ERROR);
+
+  const tenant = await findTenantById(tenantId);
+  if (!tenant) throw new AppError('Tenant not found', 404, ErrorCode.TENANT_NOT_FOUND);
+
+  // Validate slot is available
+  const available = await getAvailability(tenant.slug, {
+    serviceId: appt.service.id,
+    date:      input.date,
+    staffId:   input.staffId,
+  });
+  if (!available.some((s) => s.time === input.time)) {
+    throw new AppError('That time slot is no longer available', 409, ErrorCode.SLOT_TAKEN);
+  }
+
+  const startUTC = localToUTC(input.date, input.time, tenant.timezone);
+  const endUTC   = new Date(startUTC.getTime() + appt.service.duration * 60 * 1000);
+
+  const newAppt = await rescheduleAppointment(appt.id, {
+    tenantId:   tenantId,
+    customerId: appt.customer.id,
+    staffId:    input.staffId,
+    serviceId:  appt.service.id,
+    startTime:  startUTC,
+    endTime:    endUTC,
+    notes:      appt.notes,
+  });
+
+  return {
+    id:        newAppt.id,
+    startTime: newAppt.startTime.toISOString(),
+    endTime:   newAppt.endTime.toISOString(),
+    status:    newAppt.status,
+    cancelToken: newAppt.cancelToken,
+    customer:  newAppt.customer,
+    staff:     newAppt.staff,
+    service:   appt.service,
+  };
+}
+
+function localToUTC(dateStr: string, timeStr: string, timezone: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const [hour, minute]     = timeStr.split(':').map(Number);
+  const local = new Date(Date.UTC(year!, month! - 1, day!, hour!, minute!));
+  const formatter = new Intl.DateTimeFormat('sv-SE', { timeZone: timezone, hour12: false,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const parts   = formatter.formatToParts(local);
+  const get     = (t: string) => parseInt(parts.find((p) => p.type === t)!.value, 10);
+  const offsetMs = local.getTime() - Date.UTC(get('year'), get('month') - 1, get('day'), get('hour'), get('minute'), get('second'));
+  return new Date(local.getTime() + offsetMs);
 }
