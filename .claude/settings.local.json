@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(kill %1)",
+      "Bash(psql --version)",
+      "Bash(docker --version)",
+      "Bash(brew list *)",
+      "Bash(brew --version)",
+      "Bash(brew services *)",
+      "Bash(export PATH=\"/opt/homebrew/opt/postgresql@18/bin:$PATH\")",
+      "Bash(psql -U yashnaik -d postgres -c \"CREATE DATABASE ai_receptionist;\")",
+      "Bash(npx prisma *)",
+      "Bash(pkill -f \"prisma migrate\")",
+      "Bash(psql -U yashnaik -d ai_receptionist -c \"SELECT pg_advisory_unlock_all\\(\\);\")",
+      "Bash(psql -U yashnaik -d ai_receptionist -c ' *)",
+      "Bash(psql -U yashnaik -d postgres -c ' *)",
+      "Bash(psql -U yashnaik -d ai_receptionist -c \"\\\\dt\")",
+      "Bash(brew install *)",
+      "Bash(redis-cli ping *)",
+      "Bash(/opt/homebrew/opt/redis/bin/redis-cli ping *)",
+      "Bash(npx ts-node *)",
+      "Bash(curl -s -H \"x-api-key: cmnz7w9os00016x4zf1av0slg\" http://localhost:3001/v1/tools/services)",
+      "Bash(python3 -m json.tool kill %1)",
+      "Bash(python3 -m json.tool)",
+      "Bash(lsof -ti:3001)",
+      "Bash(xargs kill *)",
+      "Bash(kill -9 96431)",
+      "Bash(npx tsc *)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(node -e ' *)",
+      "Bash(curl -s \"http://localhost:3001/v1/public/luxe-nails\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); s=d['data']['salon']; print\\('siteEnabled:', s.get\\('siteEnabled'\\)\\); print\\('reviewsEnabled:', s.get\\('reviewsEnabled'\\)\\); print\\('galleryImages:', s.get\\('galleryImages'\\)\\); st=d['data']['staff']; print\\('staff[0]:', {k:st[0].get\\(k\\) for k in ['name','averageRating','ratingCount','experienceYears','specialties']} if st else 'none'\\)\")",
+      "Bash(curl -s \"http://localhost:3001/v1/public/appointment/nonexistent-token\")",
+      "Bash(python3 -c \"import sys,json; print\\(json.load\\(sys.stdin\\)\\)\")"
+    ]
+  }
+}

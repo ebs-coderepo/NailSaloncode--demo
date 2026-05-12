@@ -1,0 +1,445 @@
+// Prisma schema for AI Voice Receptionist — Multi-Tenant SaaS
+// Every entity that belongs to a salon carries tenantId for strict data isolation.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TENANT
+// The root entity. One row = one salon/business.
+// apiKey is the secret used by the voice AI to call tool endpoints.
+// ─────────────────────────────────────────────────────────────────────────────
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String                        // "Luxe Nails & Spa"
+  slug      String   @unique              // "luxe-nails" — used as subdomain key
+  phone     String?
+  email     String?
+  address   String?
+  timezone  String   @default("America/New_York") // All date math runs in this tz
+  apiKey    String   @unique @default(cuid())      // Voice AI authentication token
+  isActive  Boolean  @default(true)
+
+  // ── Branding & public site ────────────────────────────────────────────────
+  tagline         String?                          // "Your luxury nail experience"
+  logoUrl         String?                          // Hosted image URL
+  coverImageUrl   String?                          // Hero background image URL
+  primaryColor    String   @default("#db2777")     // Hex color for public site
+  theme           String   @default("light")       // "light" | "dark"
+
+  // ── Business hours ────────────────────────────────────────────────────────
+  // JSON shape: { "0": null, "1": { "open": "09:00", "close": "19:00" }, ... }
+  // Key is JS dayOfWeek (0=Sun). null or missing = closed that day.
+  businessHours   Json?
+
+  // ── Social & contact links ────────────────────────────────────────────────
+  socialInstagram String?
+  socialFacebook  String?
+  socialWebsite   String?
+
+  // ── Online booking ────────────────────────────────────────────────────────
+  siteEnabled           Boolean @default(true)     // Master switch for public site
+  bookingEnabled        Boolean @default(true)
+  bookingNotesEnabled   Boolean @default(true)
+  bookingLeadMinutes    Int     @default(60)
+  bookingMaxDaysAhead   Int     @default(30)
+
+  // ── Gallery ───────────────────────────────────────────────────────────────
+  // JSON array: [{ url, caption, order }]
+  galleryImages         Json?
+
+  // ── Reviews ───────────────────────────────────────────────────────────────
+  reviewsEnabled        Boolean @default(true)
+  reviewsAutoApprove    Boolean @default(true)
+  reviewsShowRating     Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users             User[]
+  services          Service[]
+  staff             Staff[]
+  appointments      Appointment[]
+  customers         Customer[]
+  voiceConfig       VoiceConfig?
+  reviews           Review[]
+  paymentConfig     PaymentConfig?
+  payments          Payment[]
+
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USERS
+// Human users of the admin dashboard (owners, managers, staff logins).
+// Not the same as Staff — a staff member may or may not have a login.
+// ─────────────────────────────────────────────────────────────────────────────
+enum UserRole {
+  OWNER    // Full access to their tenant; cannot touch other tenants
+  MANAGER  // Can manage schedule, staff, services
+  STAFF    // Read-only + own schedule
+}
+
+model User {
+  id           String   @id @default(cuid())
+  tenantId     String
+  email        String
+  passwordHash String                     // bcrypt hash — NEVER store plaintext
+  name         String
+  role         UserRole @default(STAFF)
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  // Email must be unique within a tenant, not globally —
+  // the same email could be an owner at salon A and staff at salon B
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SERVICES
+// Menu of treatments offered by the salon.
+// duration is in minutes — the availability engine uses this for slot math.
+// ─────────────────────────────────────────────────────────────────────────────
+model Service {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String                       // "Gel Manicure"
+  description String?
+  duration    Int                          // minutes (e.g. 60)
+  price       Decimal  @db.Decimal(10, 2) // stored as fixed-point; avoid floats for money
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointments  Appointment[]
+  staffServices StaffService[]
+
+  @@index([tenantId])
+  @@map("services")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAFF
+// Technicians who perform services. Separate from Users intentionally —
+// allows front-desk / manager logins without needing a staff profile,
+// and staff members without admin access.
+// ─────────────────────────────────────────────────────────────────────────────
+model Staff {
+  id              String   @id @default(cuid())
+  tenantId        String
+  name            String
+  email           String?
+  phone           String?
+  bio             String?
+  experienceYears Int?                          // Years of professional experience
+  specialties     String?                       // Comma-separated: "Gel Nails, Nail Art"
+  averageRating   Decimal? @db.Decimal(3, 2)   // Cached avg from reviews (1.00–5.00)
+  ratingCount     Int      @default(0)
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  tenant            Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointments      Appointment[]
+  workingHours      WorkingHours[]
+  scheduleOverrides ScheduleOverride[]
+  blockedTimes      BlockedTime[]
+  staffServices     StaffService[]
+  reviews           Review[]
+
+  @@index([tenantId])
+  @@map("staff")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STAFF ↔ SERVICE JOIN TABLE
+// Tracks which services each staff member is qualified to perform.
+// Used by availability engine to filter compatible staff.
+// ─────────────────────────────────────────────────────────────────────────────
+model StaffService {
+  staffId   String
+  serviceId String
+
+  staff   Staff   @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([staffId, serviceId])
+  @@map("staff_services")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WORKING HOURS
+// Regular weekly schedule. dayOfWeek follows JS Date convention: 0=Sun … 6=Sat.
+// Times are stored as "HH:MM" strings in the tenant's local timezone.
+// Storing as strings avoids DST pitfalls with UTC DateTime.
+// ─────────────────────────────────────────────────────────────────────────────
+model WorkingHours {
+  id        String  @id @default(cuid())
+  tenantId  String
+  staffId   String
+  dayOfWeek Int     // 0–6
+  startTime String  // "09:00"
+  endTime   String  // "18:00"
+  isWorking Boolean @default(true)
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  // One row per (staff, day) — avoids duplicate schedule entries
+  @@unique([staffId, dayOfWeek])
+  @@index([tenantId])
+  @@map("working_hours")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SCHEDULE OVERRIDES
+// One-off changes to a staff member's schedule: holidays, early close, etc.
+// Takes precedence over WorkingHours for that specific date.
+// ─────────────────────────────────────────────────────────────────────────────
+model ScheduleOverride {
+  id        String   @id @default(cuid())
+  tenantId  String
+  staffId   String
+  date      DateTime @db.Date           // date only; time component ignored
+  isWorking Boolean  @default(false)    // false = day off
+  startTime String?                     // if isWorking=true, override start
+  endTime   String?                     // if isWorking=true, override end
+  note      String?
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([staffId, date])
+  @@index([tenantId])
+  @@map("schedule_overrides")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BLOCKED TIMES
+// Explicit time blocks: lunch breaks, meetings, equipment maintenance, etc.
+// The availability engine subtracts these from available slots.
+// ─────────────────────────────────────────────────────────────────────────────
+model BlockedTime {
+  id        String   @id @default(cuid())
+  tenantId  String
+  staffId   String
+  startTime DateTime // stored in UTC
+  endTime   DateTime // stored in UTC
+  reason    String?
+
+  staff Staff @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, staffId])
+  @@index([tenantId, staffId, startTime])
+  @@map("blocked_times")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// APPOINTMENTS
+// The core booking record. All time values are stored in UTC.
+// bookedVia tracks the booking channel for analytics.
+// ─────────────────────────────────────────────────────────────────────────────
+enum AppointmentStatus {
+  PENDING     // Created but not yet confirmed (e.g. awaiting deposit)
+  CONFIRMED   // Active booking
+  CANCELLED   // Cancelled by customer or salon
+  COMPLETED   // Service was performed
+  NO_SHOW     // Customer did not show up
+}
+
+model Appointment {
+  id                String            @id @default(cuid())
+  tenantId          String
+  customerId        String
+  staffId           String
+  serviceId         String
+  startTime         DateTime          // UTC
+  endTime           DateTime          // UTC
+  status            AppointmentStatus @default(CONFIRMED)
+  notes             String?
+  bookedVia         String            @default("voice")
+  cancelledAt       DateTime?
+  cancelReason      String?
+  cancelToken       String            @unique @default(cuid()) // Customer self-service token
+  rescheduledFromId String?           // Points to the appointment this replaces
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id])
+  staff    Staff    @relation(fields: [staffId], references: [id])
+  service  Service  @relation(fields: [serviceId], references: [id])
+  review   Review?
+  payment  Payment?
+
+  @@index([tenantId])
+  @@index([tenantId, staffId, startTime])
+  @@index([tenantId, customerId])
+  @@map("appointments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CUSTOMERS
+// Identified by phone number within a tenant.
+// Phone is the primary lookup key for the voice AI ("find by caller ID").
+// ─────────────────────────────────────────────────────────────────────────────
+model Customer {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  phone     String                     // normalized E.164 format: +12125551234
+  email     String?
+  notes     String?                    // staff notes, allergies, preferences
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  reviews      Review[]
+
+  // A phone number belongs to exactly one customer profile per tenant
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+  @@map("customers")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEWS
+// Post-service ratings submitted by customers via a token link.
+// isVisible lets the owner moderate what shows on the public site.
+// ─────────────────────────────────────────────────────────────────────────────
+model Review {
+  id            String   @id @default(cuid())
+  tenantId      String
+  appointmentId String   @unique                 // One review per appointment
+  customerId    String
+  staffId       String
+  rating        Int                              // 1–5 stars
+  comment       String?
+  customerName  String                           // Denormalized for display
+  isVisible     Boolean  @default(true)          // Owner can hide without deleting
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  customer    Customer    @relation(fields: [customerId], references: [id])
+  staff       Staff       @relation(fields: [staffId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, staffId])
+  @@index([tenantId, isVisible])
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VOICE CONFIG
+// Per-tenant AI voice agent settings: greeting, persona, language, system prompt.
+// One-to-one with Tenant.
+// ─────────────────────────────────────────────────────────────────────────────
+model VoiceConfig {
+  id           String   @id @default(cuid())
+  tenantId     String   @unique
+  greeting     String?  // "Thank you for calling Luxe Nails! How can I help you?"
+  language     String   @default("en-US")
+  voiceId      String?  // Provider-specific voice identifier
+  systemPrompt String?  // Full system prompt injected into the voice AI agent
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("voice_configs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENT CONFIG
+// Per-tenant payment gateway settings. Stores credentials for whichever
+// gateway the owner chooses to connect (Stripe, Square, etc.).
+// Sensitive keys should be encrypted at rest in production.
+// ─────────────────────────────────────────────────────────────────────────────
+model PaymentConfig {
+  id          String   @id @default(cuid())
+  tenantId    String   @unique
+  isEnabled   Boolean  @default(false)
+  currency    String   @default("USD")
+  acceptCash  Boolean  @default(true)
+
+  // Stripe
+  stripePublishableKey String?
+  stripeSecretKey      String?  // Treat as secret — never return to frontend
+  stripeWebhookSecret  String?
+
+  // Square
+  squareAccessToken  String?
+  squareLocationId   String?
+
+  // PayPal
+  paypalClientId     String?
+  paypalClientSecret String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("payment_configs")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENT
+// Records a payment linked to an appointment.
+// Supports both manual (cash/card via POS) and gateway-processed payments.
+// ─────────────────────────────────────────────────────────────────────────────
+enum PaymentStatus {
+  PENDING    // Payment initiated but not confirmed
+  COMPLETED  // Payment received
+  REFUNDED   // Full or partial refund issued
+  FAILED     // Payment attempt failed
+}
+
+enum PaymentMethod {
+  CASH
+  CARD        // In-person card, no gateway
+  STRIPE
+  SQUARE
+  PAYPAL
+  OTHER
+}
+
+model Payment {
+  id               String        @id @default(cuid())
+  tenantId         String
+  appointmentId    String        @unique        // One payment record per appointment
+  amount           Decimal       @db.Decimal(10, 2)
+  currency         String        @default("USD")
+  status           PaymentStatus @default(PENDING)
+  method           PaymentMethod @default(CASH)
+  gatewayPaymentId String?                      // External ID from Stripe/Square/etc.
+  gatewayData      Json?                        // Raw gateway response for reference
+  notes            String?
+  paidAt           DateTime?
+  refundedAt       DateTime?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@map("payments")
+}
