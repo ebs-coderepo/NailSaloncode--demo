@@ -5,11 +5,16 @@ const API_URL = process.env.API_URL ?? process.env.NEXT_PUBLIC_API_URL ?? 'http:
 const SLUG    = process.env.NEXT_PUBLIC_SALON_SLUG ?? 'luxe-nails';
 
 async function fetchSalonInfo() {
+  const url = `${API_URL}/v1/public/${SLUG}`;
   try {
-    const res = await fetch(`${API_URL}/v1/public/${SLUG}`, { cache: 'no-store' });
+    console.log('[fetchSalonInfo] fetching:', url);
+    const res = await fetch(url, { cache: 'no-store' });
+    console.log('[fetchSalonInfo] status:', res.status);
     const json = await res.json();
+    console.log('[fetchSalonInfo] success:', json.success);
     return json.success ? json.data : null;
-  } catch {
+  } catch (err) {
+    console.error('[fetchSalonInfo] error:', err);
     return null;
   }
 }
