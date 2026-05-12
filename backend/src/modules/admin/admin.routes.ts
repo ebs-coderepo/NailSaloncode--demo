@@ -12,6 +12,7 @@ import reviewsRouter      from './reviews/reviews.routes';
 import usersRouter        from './users/users.routes';
 import paymentsRouter     from './payments/payments.routes';
 import financeRouter      from './finance/finance.routes';
+import requestsRouter     from './requests/requests.routes';
 
 // All /v1/admin/* routes require a valid JWT.
 // Individual sub-routers apply additional requireRole() guards where needed.
@@ -31,5 +32,6 @@ router.use('/reviews',      reviewsRouter);
 router.use('/users',        usersRouter);
 router.use('/payments',     paymentsRouter);
 router.use('/finance',      financeRouter);
+router.use('/requests',     requestsRouter);
 
 export default router;
